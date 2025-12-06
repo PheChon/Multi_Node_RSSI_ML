@@ -1,0 +1,79 @@
+/**
+ * TRANSMITTER FIRMWARE
+ * แก้ไขค่า MY_ID สำหรับแต่ละบอร์ด: 1, 2, หรือ 3
+ */
+#define MY_ID 2  // <-- แก้ตรงนี้ (1=Tx1, 2=Tx2, 3=Tx3)
+
+#include <Arduino.h>
+#include <esp_now.h>
+#include <WiFi.h>
+#include "common.h"
+
+// MAC Address ของ Receiver (Rx1) ที่คุณให้มา
+uint8_t receiverAddress[] = {0x9C, 0x13, 0x9E, 0x92, 0x7D, 0xAC};
+
+struct_message myData;
+esp_now_peer_info_t peerInfo;
+uint32_t packetCounter = 0;
+
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+    // Callback เมื่อส่งเสร็จ (อาจจะเพิ่ม Logic เช็คสถานะได้ถ้าต้องการ)
+}
+
+void setup() {
+    Serial.begin(115200);
+    
+    // ตั้งค่า RGB LED
+    #ifdef RGB_BUILTIN
+        pinMode(RGB_BUILTIN, OUTPUT);
+        neopixelWrite(RGB_BUILTIN, 0, 0, 0);
+    #endif
+
+    // เริ่ม WiFi Mode Station
+    WiFi.mode(WIFI_STA);
+
+    // เริ่ม ESP-NOW
+    if (esp_now_init() != ESP_OK) {
+        Serial.println("Error initializing ESP-NOW");
+        return;
+    }
+    esp_now_register_send_cb(OnDataSent);
+
+    // ลงทะเบียน Peer (Receiver)
+    memcpy(peerInfo.peer_addr, receiverAddress, 6);
+    peerInfo.channel = 0;  
+    peerInfo.encrypt = false;
+    if (esp_now_add_peer(&peerInfo) != ESP_OK){
+        Serial.println("Failed to add peer");
+        return;
+    }
+    
+    // เตรียมข้อมูลคงที่
+    myData.id = MY_ID;
+}
+
+void loop() {
+    myData.msgId = packetCounter++;
+
+    // ส่งข้อมูล
+    esp_err_t result = esp_now_send(receiverAddress, (uint8_t *) &myData, sizeof(myData));
+
+    if (result == ESP_OK) {
+        // กระพริบไฟสีเขียวสั้นๆ
+        #ifdef RGB_BUILTIN
+            neopixelWrite(RGB_BUILTIN, 16, 0, 0); // Green (GRB format)
+            //delay(10);
+            neopixelWrite(RGB_BUILTIN, 0, 0, 0);
+        #endif
+    } else {
+        // ถ้าส่งไม่ผ่าน กระพริบสีแดง
+        #ifdef RGB_BUILTIN
+            neopixelWrite(RGB_BUILTIN, 0, 16, 0); // Red
+            //delay(10);
+            neopixelWrite(RGB_BUILTIN, 0, 0, 0);
+        #endif
+    }
+
+    // ส่งถี่ๆ ทุก 50ms (20Hz) เพื่อให้ PC กรองสัญญาณได้เนียนขึ้น
+    //delay(50);
+}
